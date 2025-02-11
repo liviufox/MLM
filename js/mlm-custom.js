@@ -220,5 +220,42 @@
             that.closest('.cat_row').find('span > img').hide();
         });
     });
+// Add submit button handler
+    $(document).on('click', '#submit-location', function(e) {
+        e.preventDefault();
+        console.log('Submit button clicked'); // Debug line
 
+        var formData = new FormData($('#location-form')[0]);
+        formData.append('action', 'save_location');
+        formData.append('nonce', mlm_ajax.nonce);
+
+        // Debug: Log form data
+        console.log('Form data:', Object.fromEntries(formData));
+
+        $.ajax({
+            url: mlm_ajax.ajaxurl,
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                console.log('Response:', response); // Debug line
+                if (response.success) {
+                    alert('Location saved successfully!');
+                    window.location.reload();
+                } else {
+                    console.log('Error:', response); // Debug line
+                    alert('Error saving location: ' + response.data);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log('AJAX Error:', {
+                    status: status,
+                    error: error,
+                    response: xhr.responseText
+                });
+                alert('Error: ' + error);
+            }
+        });
+    });
 })(jQuery);
