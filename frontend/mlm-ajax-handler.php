@@ -1,63 +1,103 @@
 <?php
-/**
- * Frontend AJAX Handler for MLM Map Plugin
- *
- * This file handles AJAX requests such as location uploads.
- *
- * @package MLM_Map_Plugin
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
+// Exit if accessed directly
+if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Process location upload via AJAX.
- */
-function mlm_handle_location_upload() {
-    // Verify the nonce for security. The nonce should be generated on the frontend and passed with the request.
-    if ( ! isset( $_POST['security'] ) || ! wp_verify_nonce( $_POST['security'], 'mlm_location_upload_nonce' ) ) {
-        wp_send_json_error( 'Invalid security token.' );
+// Add AJAX actions
+add_action('wp_ajax_save_location', 'mlm_save_location');
+add_action('wp_ajax_nopriv_save_location', 'mlm_save_location');
+
+function mlm_save_location() {
+    // Debug
+    error_log('MLM: save_location AJAX handler called');
+    error_log('POST data: ' . print_r($_POST, true));
+
+    // Verify nonce
+    if (!check_ajax_referer('mlm_location_nonce', 'nonce', false)) {
+        error_log('MLM: Nonce verification failed');
+        wp_send_json_error('Security check failed');
+        return;
     }
 
-    // Validate required fields.
-    if ( empty( $_POST['location_name'] ) ) {
-        wp_send_json_error( 'Location Name is required.' );
+    // Validate required fields
+    $required_fields = array('title', 'latitude', 'longitude', 'location_type');
+    foreach ($required_fields as $field) {
+        if (!isset($_POST[$field]) || empty($_POST[$field])) {
+            error_log("MLM: Missing required field: $field");
+            wp_send_json_error("Missing required field: $field");
+            return;
+        }
     }
-    
-    // Sanitize and retrieve form values.
-    $location_name        = sanitize_text_field( $_POST['location_name'] );
-    $location_description = isset( $_POST['location_description'] ) ? sanitize_textarea_field( $_POST['location_description'] ) : '';
-    $location_address     = isset( $_POST['location_address'] ) ? sanitize_text_field( $_POST['location_address'] ) : '';
-    
-    // Additional fields (if any) can be processed similarly.
-    
-    // Insert a new location post.
-    $post_data = array(
-        'post_title'   => $location_name,
-        'post_content' => $location_description,
-        'post_status'  => 'publish', // Change to 'pending' if you want to review submissions.
-        'post_type'    => 'mlm_location_object',
+
+    // Sanitize and collect data
+    $location_data = array(
+        'title' => sanitize_text_field($_POST['title']),
+        'description' => isset($_POST['description']) ? wp_kses_post($_POST['description']) : '',
+        'latitude' => floatval($_POST['latitude']),
+        'longitude' => floatval($_POST['longitude']),
+        'location_type' => sanitize_text_field($_POST['location_type']),
+        'user_id' => get_current_user_id()
     );
+
+    // Debug
+    error_log('MLM: Sanitized location data: ' . print_r($location_data, true));
+
+    // Save to database
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'mlm_locations';
     
-    $post_id = wp_insert_post( $post_data );
-    
-    if ( is_wp_error( $post_id ) ) {
-        wp_send_json_error( 'Failed to save location. Please try again later.' );
+    $result = $wpdb->insert(
+        $table_name,
+        $location_data,
+        array(
+            '%s', // title
+            '%s', // description
+            '%f', // latitude
+            '%f', // longitude
+            '%s', // location_type
+            '%d'  // user_id
+        )
+    );
+
+    if ($result === false) {
+        error_log('MLM: Database error: ' . $wpdb->last_error);
+        wp_send_json_error('Failed to save location: Database error');
+        return;
     }
-    
-    // Save additional post meta.
-    update_post_meta( $post_id, 'location_address', $location_address );
-    
-    // If a location category is set, assign it.
-    if ( isset( $_POST['location_category'] ) && ! empty( $_POST['location_category'] ) ) {
-        $term_id = intval( $_POST['location_category'] );
-        wp_set_object_terms( $post_id, $term_id, 'mlm_location_type' );
+
+    $location_id = $wpdb->insert_id;
+    error_log('MLM: Location saved successfully. ID: ' . $location_id);
+
+    // Handle image upload if present
+    if (!empty($_FILES['location_image'])) {
+        $uploaded_file = $_FILES['location_image'];
+        $upload_overrides = array('test_form' => false);
+        
+        require_once(ABSPATH . 'wp-admin/includes/file.php');
+        require_once(ABSPATH . 'wp-admin/includes/image.php');
+        
+        $movefile = wp_handle_upload($uploaded_file, $upload_overrides);
+
+        if ($movefile && !isset($movefile['error'])) {
+            error_log('MLM: File upload successful: ' . print_r($movefile, true));
+            
+            // Update location with image URL
+            $wpdb->update(
+                $table_name,
+                array('image_url' => $movefile['url']),
+                array('id' => $location_id),
+                array('%s'),
+                array('%d')
+            );
+        } else {
+            error_log('MLM: File upload error: ' . $movefile['error']);
+        }
     }
-    
-    // Optionally process file uploads or other custom fields here.
-    
-    wp_send_json_success( 'Location uploaded successfully.' );
+
+    // Send success response
+    wp_send_json_success(array(
+        'message' => 'Location saved successfully',
+        'location_id' => $location_id
+    ));
 }
-add_action( 'wp_ajax_mlm_location_upload', 'mlm_handle_location_upload' );
-add_action( 'wp_ajax_nopriv_mlm_location_upload', 'mlm_handle_location_upload' );
