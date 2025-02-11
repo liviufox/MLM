@@ -1,10 +1,10 @@
 <?php
 /**
  * Plugin Name: MLM Map Plugin
- * Description: A plugin to manage locations and custom location types with custom fields.
- * Version: 1.0
+ * Description: A plugin for adding locations from Google Maps
+ * Version: 1.1
  * Author: Your Name
- * Text Domain: mlm-map-plugin
+ * Text Domain: mlm-map
  */
 
 // Exit if accessed directly.
